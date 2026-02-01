@@ -3,8 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <title>Neon Blaster: Infinity Siege</title>
-
-<meta name="description" content="Neon Blaster: Infinity Siege is a fast-paced HTML shooting game with login system, bosses, gun upgrades, infinite mode, and saved progress.">
 <meta name="author" content="Aditya">
 
 <style>
@@ -31,114 +29,91 @@ button,input {
 
 <h1>🎮 Neon Blaster: Infinity Siege</h1>
 
-<!-- LOGIN -->
 <div id="login">
-  <h2>Login / Create Account</h2>
   <input id="username" placeholder="Username"><br>
-  <input id="password" placeholder="Password" type="password"><br>
+  <input id="password" type="password" placeholder="Password"><br>
   <button onclick="login()">Login</button>
   <button onclick="register()">Create Account</button>
 </div>
 
-<!-- MENU -->
 <div id="menu" style="display:none;">
   <p id="welcome"></p>
   <button onclick="startGame('story')">Story Mode</button>
   <button onclick="startGame('infinite')">Infinity Mode</button>
-  <button onclick="openShop()">Gun Shop</button>
-  <br>
+  <button onclick="openShop()">Gun Shop</button><br>
   <button onclick="logout()">Logout</button>
 </div>
 
-<!-- SHOP -->
 <div id="shop" style="display:none;">
-  <h2>🛒 Gun Shop</h2>
   <p id="shopInfo"></p>
-  <button onclick="buyGun('fast')">Fast Gun (10 coins)</button>
-  <button onclick="buyGun('rapid')">Rapid Gun (25 coins)</button>
-  <br><br>
+  <button onclick="buyGun('fast')">Fast Gun (10)</button>
+  <button onclick="buyGun('rapid')">Rapid Gun (25)</button><br>
   <button onclick="goToMenu()">Back</button>
 </div>
 
 <div id="hud"></div>
-<button id="backBtn" onclick="goToMenu()" style="display:none;">Back to Menu</button>
+<button id="backBtn" onclick="goToMenu()" style="display:none;">Back</button>
 
 <canvas id="game" width="800" height="450"></canvas>
 
 <script>
-/* ========= ACCOUNT SYSTEM ========= */
-let currentUser = null;
+/* ===== ACCOUNTS ===== */
 let accounts = JSON.parse(localStorage.getItem("accounts")) || {};
-
-function saveAccounts(){
-  localStorage.setItem("accounts", JSON.stringify(accounts));
-}
+let currentUser = null;
+function save(){ localStorage.setItem("accounts", JSON.stringify(accounts)); }
 
 function register(){
-  const u = username.value;
-  const p = password.value;
-  if(!u || !p) return alert("Fill all fields");
-
-  if(accounts[u]) return alert("User already exists");
-
-  accounts[u] = {
-    password: p,
+  if(!username.value || !password.value) return alert("Fill fields");
+  if(accounts[username.value]) return alert("User exists");
+  accounts[username.value] = {
+    password: password.value,
     coins: 0,
     guns: ["normal"],
     equipped: "normal"
   };
-  saveAccounts();
-  alert("✅ Account created!");
+  save(); alert("Account created");
 }
 
 function login(){
-  const u = username.value;
-  const p = password.value;
-
-  if(!accounts[u] || accounts[u].password !== p)
-    return alert("❌ Invalid login");
-
-  currentUser = u;
-  loginDiv(false);
+  let a = accounts[username.value];
+  if(!a || a.password !== password.value) return alert("Invalid login");
+  currentUser = username.value;
+  login.style.display = "none";
+  menu.style.display = "block";
+  welcome.innerText = "Welcome " + currentUser;
 }
 
 function logout(){
-  currentUser = null;
-  loginDiv(true);
+  menu.style.display = "none";
+  login.style.display = "block";
 }
 
-function loginDiv(show){
-  document.getElementById("login").style.display = show ? "block" : "none";
-  document.getElementById("menu").style.display = show ? "none" : "block";
-  if(!show) welcome.innerText = `Welcome, ${currentUser}!`;
-}
-
-/* ========= GAME ========= */
+/* ===== GAME ===== */
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
-const menu = document.getElementById("menu");
-const shop = document.getElementById("shop");
-const hud = document.getElementById("hud");
-const backBtn = document.getElementById("backBtn");
 
 let STATE="MENU", mode="";
-let player, enemy, bullets, level, lives;
+let player, enemies=[], bullets=[];
+let level=1, wave=1, lives=5;
 let keys={}, mouse={x:0,y:0};
 let fireRate=400, lastShot=0;
-const bossMaxHP=20;
 
-/* ========= MENU ========= */
+/* Damage cooldown */
+let invincible=false;
+let invTime=0;
+const INV_DURATION=1000;
+
+/* ===== MENU ===== */
 function startGame(m){
-  mode=m; STATE="PLAYING";
+  mode=m; STATE="PLAY";
+  level=1; wave=1; lives=5;
   player={x:400,y:350,r:15,speed:4};
-  bullets=[]; level=1; lives=3;
-
-  const acc=accounts[currentUser];
-  fireRate=acc.equipped==="rapid"?100:acc.equipped==="fast"?200:400;
-
-  spawnEnemy();
+  enemies=[]; bullets=[];
+  fireRate =
+    accounts[currentUser].equipped==="rapid" ? 100 :
+    accounts[currentUser].equipped==="fast" ? 200 : 400;
+  spawnWave();
   menu.style.display="none";
-  shop.style.display="none";
   canvas.style.display="block";
   backBtn.style.display="inline-block";
 }
@@ -155,120 +130,156 @@ function goToMenu(){
 function openShop(){
   menu.style.display="none";
   shop.style.display="block";
-  shopInfo.innerText=
-    `Coins: ${accounts[currentUser].coins}
-     | Guns: ${accounts[currentUser].guns.join(", ")}`;
+  shopInfo.innerText=`Coins: ${accounts[currentUser].coins}`;
 }
 
-/* ========= SHOP ========= */
-function buyGun(type){
-  const acc=accounts[currentUser];
-  if(acc.guns.includes(type)){
-    acc.equipped=type;
-    saveAccounts();
-    alert("Equipped");
+function buyGun(t){
+  let a=accounts[currentUser];
+  if(a.guns.includes(t)){ a.equipped=t; save(); return; }
+  if(t==="fast" && a.coins>=10){ a.coins-=10; a.guns.push(t); }
+  else if(t==="rapid" && a.coins>=25){ a.coins-=25; a.guns.push(t); }
+  else return alert("Not enough coins");
+  a.equipped=t; save(); openShop();
+}
+
+/* ===== WAVES & ENEMIES ===== */
+function spawnWave(){
+  enemies=[];
+  let count = 3 + wave;
+  let boss =
+    (mode==="story" && level===5) ||
+    (mode==="infinite" && level%5===0 && wave===3);
+
+  if(boss){
+    enemies.push({
+      x:400,y:120,r:35,
+      vx:2,vy:2,
+      maxHp:50 + level*10,
+      hp:50 + level*10,
+      boss:true
+    });
     return;
   }
-  if(type==="fast"&&acc.coins>=10){
-    acc.coins-=10; acc.guns.push("fast"); acc.equipped="fast";
-  } else if(type==="rapid"&&acc.coins>=25){
-    acc.coins-=25; acc.guns.push("rapid"); acc.equipped="rapid";
-  } else return alert("Not enough coins");
 
-  saveAccounts();
-  openShop();
+  for(let i=0;i<count;i++){
+    let hp = 5 + level*2 + wave;   // ✅ MULTI-HP ENEMIES
+    enemies.push({
+      x:Math.random()*700+50,
+      y:Math.random()*200+50,
+      r:18,
+      vx:2+level*0.2,
+      vy:2+level*0.2,
+      maxHp:hp,
+      hp:hp,
+      boss:false
+    });
+  }
 }
 
-/* ========= ENEMY ========= */
-function spawnEnemy(){
-  const boss=(mode==="story"&&level===5)||(mode==="infinite"&&level%5===0);
-  enemy={
-    x:Math.random()*600+100,
-    y:Math.random()*200+50,
-    r:boss?35:20,
-    vx:2+level*0.3,
-    vy:2+level*0.3,
-    hp:boss?bossMaxHP:1,
-    boss
-  };
-}
-
-/* ========= INPUT ========= */
+/* ===== INPUT ===== */
 document.addEventListener("keydown",e=>keys[e.key]=true);
 document.addEventListener("keyup",e=>keys[e.key]=false);
 canvas.addEventListener("mousemove",e=>{
-  const r=canvas.getBoundingClientRect();
+  let r=canvas.getBoundingClientRect();
   mouse.x=e.clientX-r.left;
   mouse.y=e.clientY-r.top;
 });
 canvas.addEventListener("click",()=>{
-  if(STATE!=="PLAYING")return;
-  const now=Date.now();
-  if(now-lastShot<fireRate)return;
-  lastShot=now;
-  const a=Math.atan2(mouse.y-player.y,mouse.x-player.x);
-  bullets.push({x:player.x,y:player.y,vx:Math.cos(a)*7,vy:Math.sin(a)*7});
+  if(Date.now()-lastShot<fireRate)return;
+  lastShot=Date.now();
+  let a=Math.atan2(mouse.y-player.y,mouse.x-player.x);
+  bullets.push({
+    x:player.x,y:player.y,
+    vx:Math.cos(a)*7,
+    vy:Math.sin(a)*7
+  });
 });
 
-/* ========= LOOP ========= */
+/* ===== LOOP ===== */
 function update(){
   if(keys.w&&player.y>20)player.y-=player.speed;
   if(keys.s&&player.y<430)player.y+=player.speed;
   if(keys.a&&player.x>20)player.x-=player.speed;
   if(keys.d&&player.x<780)player.x+=player.speed;
 
-  enemy.x+=enemy.vx; enemy.y+=enemy.vy;
-  if(enemy.x<enemy.r||enemy.x>800-enemy.r)enemy.vx*=-1;
-  if(enemy.y<enemy.r||enemy.y>450-enemy.r)enemy.vy*=-1;
+  enemies.forEach(e=>{
+    e.x+=e.vx; e.y+=e.vy;
+    if(e.x<e.r||e.x>800-e.r)e.vx*=-1;
+    if(e.y<e.r||e.y>450-e.r)e.vy*=-1;
+  });
 
   bullets.forEach(b=>{b.x+=b.vx;b.y+=b.vy;});
   bullets=bullets.filter(b=>{
-    if(Math.hypot(b.x-enemy.x,b.y-enemy.y)<enemy.r){enemy.hp--;return false;}
+    for(let e of enemies){
+      if(Math.hypot(b.x-e.x,b.y-e.y)<e.r){
+        e.hp--; return false;
+      }
+    }
     return true;
   });
 
-  if(enemy.hp<=0){
-    const reward = enemy.boss ? 5 : 1;
-    accounts[currentUser].coins += reward;
-    saveAccounts();
-    level++;
-    spawnEnemy();
+  enemies=enemies.filter(e=>{
+    if(e.hp<=0){
+      accounts[currentUser].coins+=e.boss?5:1;
+      save(); return false;
+    }
+
+    if(Math.hypot(player.x-e.x,player.y-e.y)<player.r+e.r){
+      if(!invincible){
+        lives--;
+        invincible=true;
+        invTime=Date.now();
+        if(lives<=0){ alert("GAME OVER"); goToMenu(); }
+      }
+    }
+    return true;
+  });
+
+  if(invincible && Date.now()-invTime>INV_DURATION){
+    invincible=false;
   }
 
-  if(Math.hypot(player.x-enemy.x,player.y-enemy.y)<player.r+enemy.r){
-    lives--;
-    if(lives<=0){alert("GAME OVER");goToMenu();}
+  if(enemies.length===0){
+    wave++;
+    if(wave>3){ wave=1; level++; }
+    spawnWave();
   }
 }
 
 function draw(){
   ctx.clearRect(0,0,800,450);
-  ctx.fillStyle="cyan";
-  ctx.beginPath();ctx.arc(player.x,player.y,player.r,0,Math.PI*2);ctx.fill();
 
-  ctx.fillStyle=enemy.boss?"purple":"red";
-  ctx.beginPath();ctx.arc(enemy.x,enemy.y,enemy.r,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle=invincible?"#0ff":"cyan";
+  ctx.beginPath();
+  ctx.arc(player.x,player.y,player.r,0,Math.PI*2);
+  ctx.fill();
 
-  if(enemy.boss){
-    ctx.fillStyle="gray";ctx.fillRect(250,10,300,15);
-    ctx.fillStyle="lime";
-    ctx.fillRect(250,10,(enemy.hp/bossMaxHP)*300,15);
-  }
+  enemies.forEach(e=>{
+    let hpRatio = e.hp / e.maxHp;
+    ctx.fillStyle = e.boss
+      ? "purple"
+      : `rgb(${255*hpRatio},0,0)`;   // 🔥 HP feedback
+    ctx.beginPath();
+    ctx.arc(e.x,e.y,e.r,0,Math.PI*2);
+    ctx.fill();
+  });
 
   ctx.fillStyle="yellow";
   bullets.forEach(b=>ctx.fillRect(b.x,b.y,4,4));
 
-  hud.innerText=`User:${currentUser} | Level:${level} | Lives:${lives} | Coins:${accounts[currentUser].coins}`;
+  hud.innerText =
+    `Lives:${lives} | Level:${level} | Wave:${wave} | Coins:${accounts[currentUser].coins}`;
 }
 
 function loop(){
-  if(STATE==="PLAYING"){update();draw();}
+  if(STATE==="PLAY"){ update(); draw(); }
   requestAnimationFrame(loop);
 }
 loop();
 </script>
-
 </body>
 </html>
+
+
 
 
