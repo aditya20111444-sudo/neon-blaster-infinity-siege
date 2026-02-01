@@ -2,13 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-
-<!-- GAME NAME (shows in browser tab & search) -->
 <title>Neon Blaster: Infinity Siege</title>
 
-<!-- SEARCH / IDENTITY -->
-<meta name="description" content="Neon Blaster: Infinity Siege is a fast-paced HTML shooting game with bosses, gun upgrades, infinite mode, and saved progress.">
-<meta name="keywords" content="html shooting game, browser game, arcade shooter, infinity mode game">
+<meta name="description" content="Neon Blaster: Infinity Siege is a fast-paced HTML shooting game with login system, bosses, gun upgrades, infinite mode, and saved progress.">
 <meta name="author" content="Aditya">
 
 <style>
@@ -24,11 +20,10 @@ canvas {
   display:none;
   margin:auto;
 }
-button {
-  padding:12px 24px;
-  font-size:18px;
-  margin:10px;
-  cursor:pointer;
+button,input {
+  padding:10px;
+  font-size:16px;
+  margin:6px;
 }
 </style>
 </head>
@@ -36,11 +31,23 @@ button {
 
 <h1>🎮 Neon Blaster: Infinity Siege</h1>
 
-<!-- MAIN MENU -->
-<div id="menu">
+<!-- LOGIN -->
+<div id="login">
+  <h2>Login / Create Account</h2>
+  <input id="username" placeholder="Username"><br>
+  <input id="password" placeholder="Password" type="password"><br>
+  <button onclick="login()">Login</button>
+  <button onclick="register()">Create Account</button>
+</div>
+
+<!-- MENU -->
+<div id="menu" style="display:none;">
+  <p id="welcome"></p>
   <button onclick="startGame('story')">Story Mode</button>
   <button onclick="startGame('infinite')">Infinity Mode</button>
   <button onclick="openShop()">Gun Shop</button>
+  <br>
+  <button onclick="logout()">Logout</button>
 </div>
 
 <!-- SHOP -->
@@ -53,15 +60,60 @@ button {
   <button onclick="goToMenu()">Back</button>
 </div>
 
-<!-- HUD -->
 <div id="hud"></div>
 <button id="backBtn" onclick="goToMenu()" style="display:none;">Back to Menu</button>
 
-<!-- GAME -->
 <canvas id="game" width="800" height="450"></canvas>
 
 <script>
-/* ========= CANVAS & UI ========= */
+/* ========= ACCOUNT SYSTEM ========= */
+let currentUser = null;
+let accounts = JSON.parse(localStorage.getItem("accounts")) || {};
+
+function saveAccounts(){
+  localStorage.setItem("accounts", JSON.stringify(accounts));
+}
+
+function register(){
+  const u = username.value;
+  const p = password.value;
+  if(!u || !p) return alert("Fill all fields");
+
+  if(accounts[u]) return alert("User already exists");
+
+  accounts[u] = {
+    password: p,
+    coins: 0,
+    guns: ["normal"],
+    equipped: "normal"
+  };
+  saveAccounts();
+  alert("✅ Account created!");
+}
+
+function login(){
+  const u = username.value;
+  const p = password.value;
+
+  if(!accounts[u] || accounts[u].password !== p)
+    return alert("❌ Invalid login");
+
+  currentUser = u;
+  loginDiv(false);
+}
+
+function logout(){
+  currentUser = null;
+  loginDiv(true);
+}
+
+function loginDiv(show){
+  document.getElementById("login").style.display = show ? "block" : "none";
+  document.getElementById("menu").style.display = show ? "none" : "block";
+  if(!show) welcome.innerText = `Welcome, ${currentUser}!`;
+}
+
+/* ========= GAME ========= */
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 const menu = document.getElementById("menu");
@@ -69,193 +121,136 @@ const shop = document.getElementById("shop");
 const hud = document.getElementById("hud");
 const backBtn = document.getElementById("backBtn");
 
-/* ========= SAVED DATA ========= */
-let savedCoins = Number(localStorage.getItem("coins")) || 0;
-let unlockedGuns = JSON.parse(localStorage.getItem("guns")) || ["normal"];
-let equippedGun = localStorage.getItem("equippedGun") || "normal";
-
-/* ========= GAME STATE ========= */
-let STATE = "MENU";
-let mode = "";
-let player, enemy, bullets, score, level, lives, coins;
-let keys = {};
-let mouse = {x:0,y:0};
-
-let fireRate = 400;
-let lastShot = 0;
-
-const bossMaxHP = 20;
+let STATE="MENU", mode="";
+let player, enemy, bullets, level, lives;
+let keys={}, mouse={x:0,y:0};
+let fireRate=400, lastShot=0;
+const bossMaxHP=20;
 
 /* ========= MENU ========= */
-window.startGame = function(selectedMode){
-  mode = selectedMode;
-  STATE = "PLAYING";
+function startGame(m){
+  mode=m; STATE="PLAYING";
+  player={x:400,y:350,r:15,speed:4};
+  bullets=[]; level=1; lives=3;
 
-  player = { x:400, y:350, r:15, speed:4 };
-  bullets = [];
-  score = 0;
-  level = 1;
-  lives = 3;
-  coins = savedCoins;
-
-  fireRate =
-    equippedGun === "rapid" ? 100 :
-    equippedGun === "fast" ? 200 : 400;
+  const acc=accounts[currentUser];
+  fireRate=acc.equipped==="rapid"?100:acc.equipped==="fast"?200:400;
 
   spawnEnemy();
+  menu.style.display="none";
+  shop.style.display="none";
+  canvas.style.display="block";
+  backBtn.style.display="inline-block";
+}
 
-  menu.style.display = "none";
-  shop.style.display = "none";
-  canvas.style.display = "block";
-  backBtn.style.display = "inline-block";
-};
+function goToMenu(){
+  STATE="MENU";
+  canvas.style.display="none";
+  backBtn.style.display="none";
+  shop.style.display="none";
+  menu.style.display="block";
+  hud.innerText="";
+}
 
-window.goToMenu = function(){
-  STATE = "MENU";
-  canvas.style.display = "none";
-  backBtn.style.display = "none";
-  shop.style.display = "none";
-  menu.style.display = "block";
-  hud.innerText = "";
-};
-
-window.openShop = function(){
-  menu.style.display = "none";
-  shop.style.display = "block";
-  document.getElementById("shopInfo").innerText =
-    `Coins: ${savedCoins} | Owned Guns: ${unlockedGuns.join(", ")}`;
-};
+function openShop(){
+  menu.style.display="none";
+  shop.style.display="block";
+  shopInfo.innerText=
+    `Coins: ${accounts[currentUser].coins}
+     | Guns: ${accounts[currentUser].guns.join(", ")}`;
+}
 
 /* ========= SHOP ========= */
-window.buyGun = function(type){
-  if(unlockedGuns.includes(type)){
-    equippedGun = type;
-    localStorage.setItem("equippedGun", equippedGun);
-    alert("✅ Gun Equipped");
+function buyGun(type){
+  const acc=accounts[currentUser];
+  if(acc.guns.includes(type)){
+    acc.equipped=type;
+    saveAccounts();
+    alert("Equipped");
     return;
   }
+  if(type==="fast"&&acc.coins>=10){
+    acc.coins-=10; acc.guns.push("fast"); acc.equipped="fast";
+  } else if(type==="rapid"&&acc.coins>=25){
+    acc.coins-=25; acc.guns.push("rapid"); acc.equipped="rapid";
+  } else return alert("Not enough coins");
 
-  if(type==="fast" && savedCoins>=10){
-    savedCoins -= 10;
-    unlockedGuns.push("fast");
-    equippedGun = "fast";
-  } else if(type==="rapid" && savedCoins>=25){
-    savedCoins -= 25;
-    unlockedGuns.push("rapid");
-    equippedGun = "rapid";
-  } else {
-    alert("❌ Not enough coins");
-    return;
-  }
-
-  localStorage.setItem("coins", savedCoins);
-  localStorage.setItem("guns", JSON.stringify(unlockedGuns));
-  localStorage.setItem("equippedGun", equippedGun);
-
-  alert("🔫 Gun Purchased!");
+  saveAccounts();
   openShop();
-};
+}
 
 /* ========= ENEMY ========= */
 function spawnEnemy(){
-  const isBoss =
-    (mode==="story" && level===5) ||
-    (mode==="infinite" && level%5===0);
-
-  enemy = {
-    x: Math.random()*600+100,
-    y: Math.random()*200+50,
-    r: isBoss ? 35 : 20,
-    vx: 2 + level*0.3,
-    vy: 2 + level*0.3,
-    hp: isBoss ? bossMaxHP : 1,
-    boss: isBoss
+  const boss=(mode==="story"&&level===5)||(mode==="infinite"&&level%5===0);
+  enemy={
+    x:Math.random()*600+100,
+    y:Math.random()*200+50,
+    r:boss?35:20,
+    vx:2+level*0.3,
+    vy:2+level*0.3,
+    hp:boss?bossMaxHP:1,
+    boss
   };
 }
 
 /* ========= INPUT ========= */
-document.addEventListener("keydown",e=>keys[e.key.toLowerCase()]=true);
-document.addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
-
+document.addEventListener("keydown",e=>keys[e.key]=true);
+document.addEventListener("keyup",e=>keys[e.key]=false);
 canvas.addEventListener("mousemove",e=>{
-  const r = canvas.getBoundingClientRect();
-  mouse.x = e.clientX - r.left;
-  mouse.y = e.clientY - r.top;
+  const r=canvas.getBoundingClientRect();
+  mouse.x=e.clientX-r.left;
+  mouse.y=e.clientY-r.top;
 });
-
 canvas.addEventListener("click",()=>{
-  if(STATE!=="PLAYING") return;
-  const now = Date.now();
-  if(now - lastShot < fireRate) return;
-  lastShot = now;
-
-  const a = Math.atan2(mouse.y-player.y, mouse.x-player.x);
-  bullets.push({
-    x:player.x,
-    y:player.y,
-    vx:Math.cos(a)*7,
-    vy:Math.sin(a)*7
-  });
+  if(STATE!=="PLAYING")return;
+  const now=Date.now();
+  if(now-lastShot<fireRate)return;
+  lastShot=now;
+  const a=Math.atan2(mouse.y-player.y,mouse.x-player.x);
+  bullets.push({x:player.x,y:player.y,vx:Math.cos(a)*7,vy:Math.sin(a)*7});
 });
 
-/* ========= UPDATE ========= */
+/* ========= LOOP ========= */
 function update(){
-  if(keys.w && player.y>20) player.y-=player.speed;
-  if(keys.s && player.y<430) player.y+=player.speed;
-  if(keys.a && player.x>20) player.x-=player.speed;
-  if(keys.d && player.x<780) player.x+=player.speed;
+  if(keys.w&&player.y>20)player.y-=player.speed;
+  if(keys.s&&player.y<430)player.y+=player.speed;
+  if(keys.a&&player.x>20)player.x-=player.speed;
+  if(keys.d&&player.x<780)player.x+=player.speed;
 
-  enemy.x+=enemy.vx;
-  enemy.y+=enemy.vy;
-  if(enemy.x<enemy.r||enemy.x>800-enemy.r) enemy.vx*=-1;
-  if(enemy.y<enemy.r||enemy.y>450-enemy.r) enemy.vy*=-1;
+  enemy.x+=enemy.vx; enemy.y+=enemy.vy;
+  if(enemy.x<enemy.r||enemy.x>800-enemy.r)enemy.vx*=-1;
+  if(enemy.y<enemy.r||enemy.y>450-enemy.r)enemy.vy*=-1;
 
-  bullets.forEach(b=>{ b.x+=b.vx; b.y+=b.vy; });
-
-  bullets = bullets.filter(b=>{
-    if(Math.hypot(b.x-enemy.x,b.y-enemy.y)<enemy.r){
-      enemy.hp--;
-      return false;
-    }
+  bullets.forEach(b=>{b.x+=b.vx;b.y+=b.vy;});
+  bullets=bullets.filter(b=>{
+    if(Math.hypot(b.x-enemy.x,b.y-enemy.y)<enemy.r){enemy.hp--;return false;}
     return true;
   });
 
   if(enemy.hp<=0){
-    score++;
-    coins++;
-    savedCoins = coins;
-    localStorage.setItem("coins", savedCoins);
+    const reward = enemy.boss ? 5 : 1;
+    accounts[currentUser].coins += reward;
+    saveAccounts();
     level++;
     spawnEnemy();
   }
 
   if(Math.hypot(player.x-enemy.x,player.y-enemy.y)<player.r+enemy.r){
     lives--;
-    enemy.y=50;
-    if(lives<=0){
-      alert("💀 GAME OVER");
-      goToMenu();
-    }
+    if(lives<=0){alert("GAME OVER");goToMenu();}
   }
 }
 
-/* ========= DRAW ========= */
 function draw(){
   ctx.clearRect(0,0,800,450);
-
   ctx.fillStyle="cyan";
-  ctx.beginPath();
-  ctx.arc(player.x,player.y,player.r,0,Math.PI*2);
-  ctx.fill();
+  ctx.beginPath();ctx.arc(player.x,player.y,player.r,0,Math.PI*2);ctx.fill();
 
   ctx.fillStyle=enemy.boss?"purple":"red";
-  ctx.beginPath();
-  ctx.arc(enemy.x,enemy.y,enemy.r,0,Math.PI*2);
-  ctx.fill();
+  ctx.beginPath();ctx.arc(enemy.x,enemy.y,enemy.r,0,Math.PI*2);ctx.fill();
 
   if(enemy.boss){
-    ctx.fillStyle="gray";
-    ctx.fillRect(250,10,300,15);
+    ctx.fillStyle="gray";ctx.fillRect(250,10,300,15);
     ctx.fillStyle="lime";
     ctx.fillRect(250,10,(enemy.hp/bossMaxHP)*300,15);
   }
@@ -263,16 +258,11 @@ function draw(){
   ctx.fillStyle="yellow";
   bullets.forEach(b=>ctx.fillRect(b.x,b.y,4,4));
 
-  hud.innerText =
-    `Mode: ${mode.toUpperCase()} | Level: ${level} | Lives: ${lives} | Coins: ${coins}`;
+  hud.innerText=`User:${currentUser} | Level:${level} | Lives:${lives} | Coins:${accounts[currentUser].coins}`;
 }
 
-/* ========= LOOP ========= */
 function loop(){
-  if(STATE==="PLAYING"){
-    update();
-    draw();
-  }
+  if(STATE==="PLAYING"){update();draw();}
   requestAnimationFrame(loop);
 }
 loop();
@@ -280,4 +270,5 @@ loop();
 
 </body>
 </html>
+
 
