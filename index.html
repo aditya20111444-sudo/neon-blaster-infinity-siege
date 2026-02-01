@@ -7,24 +7,41 @@
 body { background:#111; color:white; text-align:center; font-family:Arial; }
 canvas { background:#222; border:2px solid white; display:none; margin:auto; }
 button,input { padding:10px; margin:6px; font-size:16px; }
+#pauseMenu {
+  display:none;
+  position:absolute;
+  top:0; left:0;
+  width:100%; height:100%;
+  background:rgba(0,0,0,0.7);
+  color:white;
+}
 </style>
 </head>
 <body>
 
 <h1>🎮 Neon Blaster: Infinity Siege</h1>
 
-<div id="login">
+<!-- LOGIN -->
+<div id="loginScreen">
   <input id="username" placeholder="Username"><br>
   <input id="password" type="password" placeholder="Password"><br>
-  <button onclick="login()">Login</button>
+  <button onclick="doLogin()">Login</button>
   <button onclick="register()">Create Account</button>
 </div>
 
+<!-- MENU -->
 <div id="menu" style="display:none;">
   <p id="welcome"></p>
   <button onclick="startGame('story')">Story Mode</button>
   <button onclick="startGame('infinite')">Infinity Mode</button>
   <button onclick="logout()">Logout</button>
+</div>
+
+<!-- PAUSE MENU -->
+<div id="pauseMenu">
+  <h2>⏸ Paused</h2>
+  <button onclick="resumeGame()">Resume</button><br>
+  <button onclick="quitGame()">Quit to Menu</button>
 </div>
 
 <div id="hud"></div>
@@ -34,39 +51,44 @@ button,input { padding:10px; margin:6px; font-size:16px; }
 /* ===== ACCOUNTS ===== */
 let accounts = JSON.parse(localStorage.getItem("accounts")) || {};
 let currentUser = null;
-function save(){ localStorage.setItem("accounts",JSON.stringify(accounts)); }
+function save(){ localStorage.setItem("accounts", JSON.stringify(accounts)); }
 
 function register(){
+  if(!username.value || !password.value) return alert("Fill fields");
   if(accounts[username.value]) return alert("User exists");
-  accounts[username.value]={password:password.value,coins:0};
-  save(); alert("Account created");
+  accounts[username.value] = { password: password.value };
+  save();
+  alert("Account created!");
 }
-function login(){
-  let a=accounts[username.value];
-  if(!a||a.password!==password.value) return alert("Invalid");
-  currentUser=username.value;
-  login.style.display="none";
+
+function doLogin(){
+  let a = accounts[username.value];
+  if(!a || a.password !== password.value) return alert("Invalid login");
+  currentUser = username.value;
+  loginScreen.style.display="none";
   menu.style.display="block";
-  welcome.innerText="Welcome "+currentUser;
+  welcome.innerText="Welcome " + currentUser;
 }
+
 function logout(){
   menu.style.display="none";
-  login.style.display="block";
+  loginScreen.style.display="block";
 }
 
 /* ===== GAME ===== */
-const canvas=document.getElementById("game");
-const ctx=canvas.getContext("2d");
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
 
-let STATE="MENU",mode="";
-let player,enemies=[],bullets=[];
-let level=1,wave=1,lives=5;
-let lastDamageTime=0;
+let STATE="MENU", mode="";
+let player, enemies=[], bullets=[];
+let level=1, wave=1, lives=5;
+let lastDamage=0;
 const DAMAGE_COOLDOWN=1000;
-let waveCooldown=false;
+let waveLock=false;
 
-let keys={},mouse={x:0,y:0};
+let keys={}, mouse={x:0,y:0};
 
+/* ===== GAME START ===== */
 function startGame(m){
   mode=m;
   STATE="PLAY";
@@ -78,20 +100,43 @@ function startGame(m){
   canvas.style.display="block";
 }
 
+/* ===== PAUSE SYSTEM ===== */
+document.addEventListener("keydown",e=>{
+  keys[e.key]=true;
+  if(e.key==="Escape" && STATE==="PLAY"){
+    STATE="PAUSED";
+    pauseMenu.style.display="block";
+  } else if(e.key==="Escape" && STATE==="PAUSED"){
+    resumeGame();
+  }
+});
+document.addEventListener("keyup",e=>keys[e.key]=false);
+
+function resumeGame(){
+  STATE="PLAY";
+  pauseMenu.style.display="none";
+}
+
+function quitGame(){
+  STATE="MENU";
+  pauseMenu.style.display="none";
+  canvas.style.display="none";
+  menu.style.display="block";
+}
+
 /* ===== WAVES ===== */
 function spawnWave(){
   enemies=[];
   let count = 3 + wave + level;
-  let bossWave =
+  let boss =
     (mode==="story" && level===5 && wave===3) ||
     (mode==="infinite" && level%5===0 && wave===3);
 
-  if(bossWave){
+  if(boss){
     enemies.push({
       x:400,y:120,r:35,
       vx:2,vy:2,
-      hp:40+level*10,
-      maxHp:40+level*10,
+      hp:50+level*10,
       boss:true
     });
     return;
@@ -106,15 +151,12 @@ function spawnWave(){
       vx:2+level*0.3,
       vy:2+level*0.3,
       hp:hp,
-      maxHp:hp,
       boss:false
     });
   }
 }
 
 /* ===== INPUT ===== */
-document.addEventListener("keydown",e=>keys[e.key]=true);
-document.addEventListener("keyup",e=>keys[e.key]=false);
 canvas.addEventListener("mousemove",e=>{
   let r=canvas.getBoundingClientRect();
   mouse.x=e.clientX-r.left;
@@ -151,31 +193,29 @@ function update(){
   let now=Date.now();
   enemies=enemies.filter(e=>{
     if(e.hp<=0) return false;
-
     if(Math.hypot(player.x-e.x,player.y-e.y)<player.r+e.r){
-      if(now-lastDamageTime>DAMAGE_COOLDOWN){
+      if(now-lastDamage>DAMAGE_COOLDOWN){
         lives--;
-        lastDamageTime=now;
-        if(lives<=0){ alert("GAME OVER"); location.reload(); }
+        lastDamage=now;
+        if(lives<=0){ alert("GAME OVER"); quitGame(); }
       }
     }
     return true;
   });
 
-  if(enemies.length===0 && !waveCooldown){
-    waveCooldown=true;
+  if(enemies.length===0 && !waveLock){
+    waveLock=true;
     setTimeout(()=>{
       wave++;
       if(wave>3){ wave=1; level++; }
       spawnWave();
-      waveCooldown=false;
+      waveLock=false;
     },1500);
   }
 }
 
 function draw(){
   ctx.clearRect(0,0,800,450);
-
   ctx.fillStyle="cyan";
   ctx.beginPath(); ctx.arc(player.x,player.y,player.r,0,Math.PI*2); ctx.fill();
 
@@ -198,4 +238,5 @@ loop();
 </script>
 </body>
 </html>
+
 
