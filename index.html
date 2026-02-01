@@ -1,94 +1,116 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
 <title>Neon Blaster: Infinity Siege</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+
 <style>
-body { background:#111; color:white; text-align:center; font-family:Arial; }
-canvas { background:#222; border:2px solid white; display:none; margin:auto; }
-button,input { padding:10px; margin:6px; font-size:16px; }
-#pauseMenu {
-  display:none;
-  position:absolute;
-  top:0; left:0;
-  width:100%; height:100%;
-  background:rgba(0,0,0,0.7);
+body {
+  margin:0;
+  background:#111;
   color:white;
+  text-align:center;
+  font-family:Arial;
+  overflow:hidden;
+}
+canvas {
+  background:#222;
+  display:none;
+  margin:auto;
+}
+button,input {
+  padding:10px;
+  margin:5px;
+  font-size:16px;
+}
+
+/* MOBILE CONTROLS */
+#mobileControls {
+  display:none;
+  position:fixed;
+  bottom:10px;
+  width:100%;
+  pointer-events:none;
+}
+#joystick {
+  width:120px;
+  height:120px;
+  border-radius:50%;
+  background:rgba(255,255,255,0.1);
+  position:absolute;
+  left:20px;
+  bottom:0;
+  pointer-events:auto;
+}
+#stick {
+  width:50px;
+  height:50px;
+  background:rgba(0,255,255,0.8);
+  border-radius:50%;
+  position:absolute;
+  left:35px;
+  top:35px;
+}
+#shootBtn {
+  width:90px;
+  height:90px;
+  border-radius:50%;
+  background:red;
+  color:white;
+  font-size:18px;
+  position:absolute;
+  right:30px;
+  bottom:10px;
+  pointer-events:auto;
 }
 </style>
 </head>
+
 <body>
+<h2>🎮 Neon Blaster: Infinity Siege</h2>
 
-<h1>🎮 Neon Blaster: Infinity Siege</h1>
-
-<!-- LOGIN -->
 <div id="loginScreen">
   <input id="username" placeholder="Username"><br>
   <input id="password" type="password" placeholder="Password"><br>
-  <button onclick="doLogin()">Login</button>
-  <button onclick="register()">Create Account</button>
+  <button onclick="login()">Login</button>
 </div>
 
-<!-- MENU -->
 <div id="menu" style="display:none;">
-  <p id="welcome"></p>
   <button onclick="startGame('story')">Story Mode</button>
   <button onclick="startGame('infinite')">Infinity Mode</button>
-  <button onclick="logout()">Logout</button>
 </div>
 
-<!-- PAUSE MENU -->
-<div id="pauseMenu">
-  <h2>⏸ Paused</h2>
-  <button onclick="resumeGame()">Resume</button><br>
-  <button onclick="quitGame()">Quit to Menu</button>
-</div>
-
-<div id="hud"></div>
 <canvas id="game" width="800" height="450"></canvas>
+<div id="hud"></div>
+
+<!-- MOBILE CONTROLS -->
+<div id="mobileControls">
+  <div id="joystick">
+    <div id="stick"></div>
+  </div>
+  <button id="shootBtn">SHOOT</button>
+</div>
 
 <script>
-/* ===== ACCOUNTS ===== */
-let accounts = JSON.parse(localStorage.getItem("accounts")) || {};
-let currentUser = null;
-function save(){ localStorage.setItem("accounts", JSON.stringify(accounts)); }
-
-function register(){
-  if(!username.value || !password.value) return alert("Fill fields");
-  if(accounts[username.value]) return alert("User exists");
-  accounts[username.value] = { password: password.value };
-  save();
-  alert("Account created!");
-}
-
-function doLogin(){
-  let a = accounts[username.value];
-  if(!a || a.password !== password.value) return alert("Invalid login");
-  currentUser = username.value;
+/* ===== BASIC LOGIN (SIMPLE) ===== */
+function login(){
   loginScreen.style.display="none";
   menu.style.display="block";
-  welcome.innerText="Welcome " + currentUser;
 }
 
-function logout(){
-  menu.style.display="none";
-  loginScreen.style.display="block";
-}
-
-/* ===== GAME ===== */
+/* ===== GAME SETUP ===== */
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
 let STATE="MENU", mode="";
 let player, enemies=[], bullets=[];
 let level=1, wave=1, lives=5;
-let lastDamage=0;
-const DAMAGE_COOLDOWN=1000;
-let waveLock=false;
 
-let keys={}, mouse={x:0,y:0};
+let keys={};
+let joystick={x:0,y:0,active:false};
 
-/* ===== GAME START ===== */
+/* ===== START GAME ===== */
 function startGame(m){
   mode=m;
   STATE="PLAY";
@@ -98,81 +120,79 @@ function startGame(m){
   spawnWave();
   menu.style.display="none";
   canvas.style.display="block";
+  mobileControls.style.display="block";
 }
 
-/* ===== PAUSE SYSTEM ===== */
-document.addEventListener("keydown",e=>{
-  keys[e.key]=true;
-  if(e.key==="Escape" && STATE==="PLAY"){
-    STATE="PAUSED";
-    pauseMenu.style.display="block";
-  } else if(e.key==="Escape" && STATE==="PAUSED"){
-    resumeGame();
-  }
-});
-document.addEventListener("keyup",e=>keys[e.key]=false);
-
-function resumeGame(){
-  STATE="PLAY";
-  pauseMenu.style.display="none";
-}
-
-function quitGame(){
-  STATE="MENU";
-  pauseMenu.style.display="none";
-  canvas.style.display="none";
-  menu.style.display="block";
-}
-
-/* ===== WAVES ===== */
+/* ===== ENEMY WAVES ===== */
 function spawnWave(){
   enemies=[];
-  let count = 3 + wave + level;
-  let boss =
-    (mode==="story" && level===5 && wave===3) ||
-    (mode==="infinite" && level%5===0 && wave===3);
-
-  if(boss){
-    enemies.push({
-      x:400,y:120,r:35,
-      vx:2,vy:2,
-      hp:50+level*10,
-      boss:true
-    });
-    return;
-  }
+  let count = 4 + wave;
 
   for(let i=0;i<count;i++){
-    let hp = 5 + level*2 + wave;
+    let hp = 2 + Math.floor((level - 1) / 5); // 🔥 FIXED HP SYSTEM
     enemies.push({
       x:Math.random()*700+50,
       y:Math.random()*200+50,
       r:18,
-      vx:2+level*0.3,
-      vy:2+level*0.3,
-      hp:hp,
-      boss:false
+      vx:2+level*0.2,
+      vy:2+level*0.2,
+      hp:hp
     });
   }
 }
 
 /* ===== INPUT ===== */
-canvas.addEventListener("mousemove",e=>{
-  let r=canvas.getBoundingClientRect();
-  mouse.x=e.clientX-r.left;
-  mouse.y=e.clientY-r.top;
+document.addEventListener("keydown",e=>keys[e.key]=true);
+document.addEventListener("keyup",e=>keys[e.key]=false);
+
+canvas.addEventListener("click",shoot);
+shootBtn.addEventListener("click",shoot);
+
+function shoot(){
+  bullets.push({
+    x:player.x,
+    y:player.y,
+    vx:0,
+    vy:-7
+  });
+}
+
+/* ===== JOYSTICK ===== */
+const joy = document.getElementById("joystick");
+const stick = document.getElementById("stick");
+
+joy.addEventListener("touchstart",e=>joystick.active=true);
+joy.addEventListener("touchmove",e=>{
+  let t=e.touches[0];
+  let r=joy.getBoundingClientRect();
+  joystick.x=(t.clientX-r.left-60)/40;
+  joystick.y=(t.clientY-r.top-60)/40;
 });
-canvas.addEventListener("click",()=>{
-  let a=Math.atan2(mouse.y-player.y,mouse.x-player.x);
-  bullets.push({x:player.x,y:player.y,vx:Math.cos(a)*7,vy:Math.sin(a)*7});
+joy.addEventListener("touchend",()=>{
+  joystick.active=false;
+  joystick.x=joystick.y=0;
+  stick.style.left="35px";
+  stick.style.top="35px";
 });
 
-/* ===== LOOP ===== */
+/* ===== GAME LOOP ===== */
 function update(){
-  if(keys.w&&player.y>20)player.y-=player.speed;
-  if(keys.s&&player.y<430)player.y+=player.speed;
-  if(keys.a&&player.x>20)player.x-=player.speed;
-  if(keys.d&&player.x<780)player.x+=player.speed;
+  let dx=0, dy=0;
+
+  if(keys.w||keys.ArrowUp) dy--;
+  if(keys.s||keys.ArrowDown) dy++;
+  if(keys.a||keys.ArrowLeft) dx--;
+  if(keys.d||keys.ArrowRight) dx++;
+
+  if(joystick.active){
+    dx+=joystick.x;
+    dy+=joystick.y;
+    stick.style.left=35+joystick.x*30+"px";
+    stick.style.top=35+joystick.y*30+"px";
+  }
+
+  player.x+=dx*player.speed;
+  player.y+=dy*player.speed;
 
   enemies.forEach(e=>{
     e.x+=e.vx; e.y+=e.vy;
@@ -180,63 +200,68 @@ function update(){
     if(e.y<e.r||e.y>450-e.r)e.vy*=-1;
   });
 
-  bullets.forEach(b=>{b.x+=b.vx;b.y+=b.vy;});
+  bullets.forEach(b=>b.y+=b.vy);
+
   bullets=bullets.filter(b=>{
     for(let e of enemies){
       if(Math.hypot(b.x-e.x,b.y-e.y)<e.r){
         e.hp--; return false;
       }
     }
-    return true;
+    return b.y>0;
   });
 
-  let now=Date.now();
   enemies=enemies.filter(e=>{
     if(e.hp<=0) return false;
     if(Math.hypot(player.x-e.x,player.y-e.y)<player.r+e.r){
-      if(now-lastDamage>DAMAGE_COOLDOWN){
-        lives--;
-        lastDamage=now;
-        if(lives<=0){ alert("GAME OVER"); quitGame(); }
+      lives--;
+      if(lives<=0){
+        alert("GAME OVER");
+        location.reload();
       }
     }
     return true;
   });
 
-  if(enemies.length===0 && !waveLock){
-    waveLock=true;
-    setTimeout(()=>{
-      wave++;
-      if(wave>3){ wave=1; level++; }
-      spawnWave();
-      waveLock=false;
-    },1500);
+  if(enemies.length===0){
+    wave++;
+    if(wave>3){ wave=1; level++; }
+    spawnWave();
   }
 }
 
 function draw(){
   ctx.clearRect(0,0,800,450);
+
   ctx.fillStyle="cyan";
-  ctx.beginPath(); ctx.arc(player.x,player.y,player.r,0,Math.PI*2); ctx.fill();
+  ctx.beginPath();
+  ctx.arc(player.x,player.y,player.r,0,Math.PI*2);
+  ctx.fill();
 
   enemies.forEach(e=>{
-    ctx.fillStyle=e.boss?"purple":"red";
-    ctx.beginPath(); ctx.arc(e.x,e.y,e.r,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle="red";
+    ctx.beginPath();
+    ctx.arc(e.x,e.y,e.r,0,Math.PI*2);
+    ctx.fill();
   });
 
   ctx.fillStyle="yellow";
-  bullets.forEach(b=>ctx.fillRect(b.x,b.y,4,4));
+  bullets.forEach(b=>ctx.fillRect(b.x,b.y,4,8));
 
   hud.innerText=`Level ${level} | Wave ${wave}/3 | Lives ${lives}`;
 }
 
 function loop(){
-  if(STATE==="PLAY"){ update(); draw(); }
+  if(STATE==="PLAY"){
+    update();
+    draw();
+  }
   requestAnimationFrame(loop);
 }
 loop();
 </script>
 </body>
 </html>
+
 
 
